@@ -6,6 +6,7 @@ import ca.uhn.fhir.validation.FhirValidator;
 import ca.uhn.fhir.validation.ResultSeverityEnum;
 import ca.uhn.fhir.validation.ValidationResult;
 import org.hamcrest.Matchers;
+import org.hl7.fhir.dstu3.hapi.ctx.DefaultProfileValidationSupport;
 import org.hl7.fhir.dstu3.hapi.ctx.IValidationSupport;
 import org.hl7.fhir.dstu3.model.CodeableConcept;
 import org.hl7.fhir.dstu3.model.Coding;
@@ -54,7 +55,6 @@ public class QuestionnaireValidatorDstu3Test {
 			"https://acme.com/questionnaire-color-control-4",
 			"http://nema.org/questionnaire-color-control-5",
 			"https://nema.org/questionnaire-color-control-6",
-			"http://hl7.org/fhir/StructureDefinition/questionnaire-scoreItem",
 			"http://hl7.org/fhir/StructureDefinition/structuredefinition-expression",
 		};
 		for (String extensionDomainToTest : extensionDomainsToTest) {
@@ -72,6 +72,7 @@ public class QuestionnaireValidatorDstu3Test {
 			assertThat(errors.isSuccessful(), Matchers.is(true));
 			assertThat(errors.getMessages(), Matchers.empty());
 		}
+
 	}
 
 	@Test

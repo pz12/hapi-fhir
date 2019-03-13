@@ -4,7 +4,7 @@ package ca.uhn.fhir.spring.boot.autoconfigure;
  * #%L
  * hapi-fhir-spring-boot-autoconfigure
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ package ca.uhn.fhir.spring.boot.autoconfigure;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.jaxrs.server.AbstractJaxRsProvider;
-import ca.uhn.fhir.jpa.config.BaseConfig;
 import ca.uhn.fhir.jpa.config.BaseJavaConfigDstu2;
 import ca.uhn.fhir.jpa.config.BaseJavaConfigDstu3;
 import ca.uhn.fhir.jpa.config.BaseJavaConfigR4;
@@ -46,6 +45,7 @@ import ca.uhn.fhir.rest.server.interceptor.ResponseValidatingInterceptor;
 import okhttp3.OkHttpClient;
 import org.apache.http.client.HttpClient;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.*;
@@ -59,16 +59,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
-import org.springframework.core.task.AsyncTaskExecutor;
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
-import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.concurrent.ConcurrentTaskScheduler;
-import org.springframework.scheduling.concurrent.ScheduledExecutorFactoryBean;
 import org.springframework.util.CollectionUtils;
 
 import javax.servlet.ServletException;
 import javax.sql.DataSource;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * {@link EnableAutoConfiguration Auto-configuration} for HAPI FHIR.
@@ -109,8 +105,6 @@ public class FhirAutoConfiguration {
 
 		private final IPagingProvider pagingProvider;
 
-		private final List<IServerInterceptor> interceptors;
-
 		private final List<FhirRestfulServerCustomizer> customizers;
 
 		public FhirRestfulServerConfiguration(
@@ -124,7 +118,6 @@ public class FhirAutoConfiguration {
 			this.fhirContext = fhirContext;
 			this.resourceProviders = resourceProviders.getIfAvailable();
 			this.pagingProvider = pagingProvider.getIfAvailable();
-			this.interceptors = interceptors.getIfAvailable();
 			this.customizers = customizers.getIfAvailable();
 		}
 
@@ -151,7 +144,6 @@ public class FhirAutoConfiguration {
 			setFhirContext(this.fhirContext);
 			setResourceProviders(this.resourceProviders);
 			setPagingProvider(this.pagingProvider);
-			setInterceptors(this.interceptors);
 
 			setServerAddressStrategy(new HardcodedServerAddressStrategy(this.properties.getServer().getPath()));
 
@@ -164,26 +156,11 @@ public class FhirAutoConfiguration {
 	@ConditionalOnBean(DataSource.class)
 	@EnableConfigurationProperties(FhirProperties.class)
 	static class FhirJpaServerConfiguration {
-
-		@Bean
-		@ConditionalOnMissingBean
-		public ScheduledExecutorFactoryBean scheduledExecutorService() {
-			ScheduledExecutorFactoryBean b = new ScheduledExecutorFactoryBean();
-			b.setPoolSize(5);
-			return b;
-		}
-
-		@Bean(name=BaseConfig.TASK_EXECUTOR_NAME)
-		public AsyncTaskExecutor taskScheduler() {
-			ConcurrentTaskScheduler retVal = new ConcurrentTaskScheduler();
-			retVal.setConcurrentExecutor(scheduledExecutorService().getObject());
-			retVal.setScheduledExecutor(scheduledExecutorService().getObject());
-			return retVal;
-		}
+		@Autowired
+		private ScheduledExecutorService myScheduledExecutorService;
 
 		@Configuration
 		@EntityScan(basePackages = {"ca.uhn.fhir.jpa.entity", "ca.uhn.fhir.jpa.model.entity"})
-		@EnableJpaRepositories(basePackages = "ca.uhn.fhir.jpa.dao.data")
 		static class FhirJpaDaoConfiguration {
 
 			@Bean

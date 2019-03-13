@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,20 +21,25 @@ package ca.uhn.fhir.jpa.subscription.module;
  */
 
 import ca.uhn.fhir.context.FhirContext;
+import ca.uhn.fhir.jpa.subscription.module.subscriber.BaseResourceMessage;
+import ca.uhn.fhir.jpa.subscription.module.subscriber.IResourceMessage;
+import ca.uhn.fhir.util.ResourceReferenceInfo;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
 
+import java.util.List;
+
+import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonAutoDetect(creatorVisibility = JsonAutoDetect.Visibility.NONE, fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
-public class ResourceModifiedMessage {
-
-	private static final long serialVersionUID = 1L;
+public class ResourceModifiedMessage extends BaseResourceMessage implements IResourceMessage {
 
 	@JsonProperty("resourceId")
 	private String myId;
@@ -53,11 +58,15 @@ public class ResourceModifiedMessage {
 	@JsonIgnore
 	private transient IBaseResource myPayloadDecoded;
 
-	// For JSON
+	/**
+	 * Constructor
+	 */
 	public ResourceModifiedMessage() {
+		super();
 	}
 
 	public ResourceModifiedMessage(FhirContext theFhirContext, IBaseResource theResource, OperationTypeEnum theOperationType) {
+		this();
 		setId(theResource.getIdElement());
 		setOperationType(theOperationType);
 		if (theOperationType != OperationTypeEnum.DELETE) {
@@ -65,6 +74,7 @@ public class ResourceModifiedMessage {
 		}
 	}
 
+	@Override
 	public String getPayloadId() {
 		return myPayloadId;
 	}
@@ -107,29 +117,66 @@ public class ResourceModifiedMessage {
 		}
 	}
 
-	public void setNewPayload(FhirContext theCtx, IBaseResource theNewPayload) {
+	private void setNewPayload(FhirContext theCtx, IBaseResource theNewPayload) {
+		/*
+		 * References with placeholders would be invalid by the time we get here, and
+		 * would be caught before we even get here. This check is basically a last-ditch
+		 * effort to make sure nothing has broken in the various safeguards that
+		 * should prevent this from happening (hence it only being an assert as
+		 * opposed to something executed all the time).
+		 */
+		assert payloadContainsNoPlaceholderReferences(theCtx, theNewPayload);
+
+		/*
+		 * Note: Don't set myPayloadDecoded in here- This is a false optimization since
+		 * it doesn't actually get used if anyone is doing subscriptions at any
+		 * scale using a queue engine, and not going through the serialize/deserialize
+		 * as we would in a queue engine can mask bugs.
+		 * -JA
+		 */
 		myPayload = theCtx.newJsonParser().encodeResourceToString(theNewPayload);
 		myPayloadId = theNewPayload.getIdElement().toUnqualified().getValue();
-		myPayloadDecoded = theNewPayload;
 	}
-
-	/**
-	 * This is mostly useful for unit tests - Clear the decoded payload so that
-	 * we force the encoded version to be used later. This proves that we get the same
-	 * behaviour in environments with serializing queues as we do with in-memory
-	 * queues.
-	 */
-	public void clearPayloadDecoded() {
-		myPayloadDecoded = null;
-	}
-
 
 	public enum OperationTypeEnum {
 		CREATE,
 		UPDATE,
 		DELETE,
-		MANUALLY_TRIGGERED;
+		MANUALLY_TRIGGERED
 
 	}
 
+	private static boolean payloadContainsNoPlaceholderReferences(FhirContext theCtx, IBaseResource theNewPayload) {
+		List<ResourceReferenceInfo> refs = theCtx.newTerser().getAllResourceReferences(theNewPayload);
+		for (ResourceReferenceInfo next : refs) {
+			String ref = next.getResourceReference().getReferenceElement().getValue();
+			if (isBlank(ref)) {
+				IBaseResource resource = next.getResourceReference().getResource();
+				if (resource != null) {
+					ref = resource.getIdElement().getValue();
+				}
+			}
+			if (isNotBlank(ref)) {
+				if (ref.startsWith("#")) {
+					continue;
+				}
+				if (ref.startsWith("urn:uuid:")) {
+					throw new AssertionError("Reference at " + next.getName() + " is invalid: " + ref);
+				}
+			}
+		}
+		return true;
+	}
+
+	@Override
+	public String toString() {
+		return new ToStringBuilder(this)
+			.append("myId", myId)
+			.append("myOperationType", myOperationType)
+			.append("mySubscriptionId", mySubscriptionId)
+//			.append("myPayload", myPayload)
+			.append("myPayloadId", myPayloadId)
+//			.append("myPayloadDecoded", myPayloadDecoded)
+			.toString();
+	}
 }

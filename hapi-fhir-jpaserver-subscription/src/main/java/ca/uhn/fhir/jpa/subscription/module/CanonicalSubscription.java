@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,20 +26,21 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
+import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.hl7.fhir.instance.model.api.IIdType;
 import org.hl7.fhir.instance.model.api.IPrimitiveType;
-import org.hl7.fhir.r4.model.EventDefinition;
+import org.hl7.fhir.r4.model.IdType;
 import org.hl7.fhir.r4.model.Subscription;
 
+import javax.annotation.Nonnull;
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonAutoDetect(creatorVisibility = JsonAutoDetect.Visibility.NONE, fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
-public class CanonicalSubscription implements Serializable {
+public class CanonicalSubscription implements Serializable, Cloneable {
 
 	private static final long serialVersionUID = 1L;
 
@@ -63,6 +64,15 @@ public class CanonicalSubscription implements Serializable {
 	private EmailDetails myEmailDetails;
 	@JsonProperty("restHookDetails")
 	private RestHookDetails myRestHookDetails;
+	@JsonProperty("extensions")
+	private Map<String, List<String>> myChannelExtensions;
+
+	/**
+	 * Constructor
+	 */
+	public CanonicalSubscription() {
+		super();
+	}
 
 	/**
 	 * For now we're using the R4 TriggerDefinition, but this
@@ -104,8 +114,9 @@ public class CanonicalSubscription implements Serializable {
 		myEndpointUrl = theEndpointUrl;
 	}
 
+	@Nonnull
 	public List<String> getHeaders() {
-		return myHeaders;
+		return myHeaders != null ? Collections.unmodifiableList(myHeaders) : Collections.emptyList();
 	}
 
 	public void setHeaders(List<? extends IPrimitiveType<String>> theHeader) {
@@ -124,12 +135,46 @@ public class CanonicalSubscription implements Serializable {
 		}
 	}
 
+	public String getChannelExtension(String theUrl) {
+		String retVal = null;
+		List<String> strings = myChannelExtensions.get(theUrl);
+		if (strings != null && strings.isEmpty()==false) {
+			retVal = strings.get(0);
+		}
+		return retVal;
+	}
+
+	@Nonnull
+	public List<String> getChannelExtensions(String theUrl) {
+		List<String> retVal = myChannelExtensions.get(theUrl);
+		if (retVal == null) {
+			retVal = Collections.emptyList();
+		} else {
+			retVal = Collections.unmodifiableList(retVal);
+		}
+		return retVal;
+	}
+
+	public void setChannelExtensions(Map<String, List<String>> theChannelExtensions) {
+		myChannelExtensions = new HashMap<>();
+		for (String url : theChannelExtensions.keySet()) {
+			List<String> values = theChannelExtensions.get(url);
+			if (isNotBlank(url) && values != null) {
+				myChannelExtensions.put(url, values);
+			}
+		}
+	}
+
 	public IIdType getIdElement(FhirContext theContext) {
 		IIdType retVal = null;
 		if (isNotBlank(myIdElement)) {
 			retVal = theContext.getVersion().newIdType().setValue(myIdElement);
 		}
 		return retVal;
+	}
+
+	public String getIdPart() {
+		return new IdType(getIdElementString()).getIdPart();
 	}
 
 	public String getIdElementString() {
@@ -186,6 +231,7 @@ public class CanonicalSubscription implements Serializable {
 		b.append(myTrigger, that.myTrigger);
 		b.append(myEmailDetails, that.myEmailDetails);
 		b.append(myRestHookDetails, that.myRestHookDetails);
+		b.append(myChannelExtensions, that.myChannelExtensions);
 		return b.isEquals();
 	}
 
@@ -202,6 +248,7 @@ public class CanonicalSubscription implements Serializable {
 			.append(myTrigger)
 			.append(myEmailDetails)
 			.append(myRestHookDetails)
+			.append(myChannelExtensions)
 			.toHashCode();
 	}
 
@@ -212,13 +259,39 @@ public class CanonicalSubscription implements Serializable {
 		}
 	}
 
+	/**
+	 * Adds a header
+	 *
+	 * @param theHeader The header, e.g. "Authorization: Bearer AAAAA"
+	 */
+	public void addHeader(String theHeader) {
+		if (isNotBlank(theHeader)) {
+			initHeaders();
+			myHeaders.add(theHeader);
+		}
+	}
+
+	private void initHeaders() {
+		if (myHeaders == null) {
+			myHeaders = new ArrayList<>();
+		}
+	}
+
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	@JsonAutoDetect(creatorVisibility = JsonAutoDetect.Visibility.NONE, fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
 	public static class EmailDetails {
+
 		@JsonProperty("from")
 		private String myFrom;
 		@JsonProperty("subjectTemplate")
 		private String mySubjectTemplate;
+
+		/**
+		 * Construcor
+		 */
+		public EmailDetails() {
+			super();
+		}
 
 		public String getFrom() {
 			return myFrom;
@@ -240,10 +313,18 @@ public class CanonicalSubscription implements Serializable {
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	@JsonAutoDetect(creatorVisibility = JsonAutoDetect.Visibility.NONE, fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
 	public static class RestHookDetails {
+
 		@JsonProperty("stripVersionId")
 		private boolean myStripVersionId;
 		@JsonProperty("deliverLatestVersion")
 		private boolean myDeliverLatestVersion;
+
+		/**
+		 * Constructor
+		 */
+		public RestHookDetails() {
+			super();
+		}
 
 		public boolean isDeliverLatestVersion() {
 			return myDeliverLatestVersion;
@@ -251,6 +332,15 @@ public class CanonicalSubscription implements Serializable {
 
 		public void setDeliverLatestVersion(boolean theDeliverLatestVersion) {
 			myDeliverLatestVersion = theDeliverLatestVersion;
+		}
+
+
+		public boolean isStripVersionId() {
+			return myStripVersionId;
+		}
+
+		public void setStripVersionId(boolean theStripVersionId) {
+			myStripVersionId = theStripVersionId;
 		}
 
 		@Override
@@ -275,23 +365,35 @@ public class CanonicalSubscription implements Serializable {
 				.toHashCode();
 		}
 
-		public boolean isStripVersionId() {
-			return myStripVersionId;
-		}
-
-		public void setStripVersionId(boolean theStripVersionId) {
-			myStripVersionId = theStripVersionId;
-		}
-
 	}
 
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	@JsonAutoDetect(creatorVisibility = JsonAutoDetect.Visibility.NONE, fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
 	public static class CanonicalEventDefinition {
 
-		public CanonicalEventDefinition(EventDefinition theDef) {
+		/**
+		 * Constructor
+		 */
+		public CanonicalEventDefinition() {
 			// nothing yet
 		}
+
 	}
 
+	@Override
+	public String toString() {
+		return new ToStringBuilder(this)
+			.append("myIdElement", myIdElement)
+			.append("myStatus", myStatus)
+			.append("myCriteriaString", myCriteriaString)
+			.append("myEndpointUrl", myEndpointUrl)
+			.append("myPayloadString", myPayloadString)
+//			.append("myHeaders", myHeaders)
+			.append("myChannelType", myChannelType)
+//			.append("myTrigger", myTrigger)
+//			.append("myEmailDetails", myEmailDetails)
+//			.append("myRestHookDetails", myRestHookDetails)
+//			.append("myChannelExtensions", myChannelExtensions)
+			.toString();
+	}
 }

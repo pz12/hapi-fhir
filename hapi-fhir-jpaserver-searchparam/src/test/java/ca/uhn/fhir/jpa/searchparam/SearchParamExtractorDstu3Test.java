@@ -8,11 +8,10 @@ import ca.uhn.fhir.jpa.model.entity.ModelConfig;
 import ca.uhn.fhir.jpa.model.entity.ResourceIndexedSearchParamToken;
 import ca.uhn.fhir.jpa.model.entity.ResourceTable;
 import ca.uhn.fhir.jpa.searchparam.extractor.SearchParamExtractorDstu3;
-import ca.uhn.fhir.jpa.searchparam.registry.ISearchParamProvider;
 import ca.uhn.fhir.jpa.searchparam.registry.ISearchParamRegistry;
 import ca.uhn.fhir.util.TestUtil;
 import org.hl7.fhir.dstu3.hapi.ctx.IValidationSupport;
-import org.hl7.fhir.dstu3.hapi.validation.DefaultProfileValidationSupport;
+import org.hl7.fhir.dstu3.hapi.ctx.DefaultProfileValidationSupport;
 import org.hl7.fhir.dstu3.model.Observation;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -69,11 +68,6 @@ public class SearchParamExtractorDstu3Test {
 			}
 
 			@Override
-			public void refreshCacheIfNecessary() {
-				// nothing
-			}
-
-			@Override
 			public void requestRefresh() {
 				// nothing
 			}
@@ -86,11 +80,6 @@ public class SearchParamExtractorDstu3Test {
 			@Override
 			public Collection<RuntimeSearchParam> getSearchParamsByResourceType(RuntimeResourceDefinition theResourceDef) {
 				return null;
-			}
-
-			@Override
-			public void setSearchParamProviderForUnitTest(ISearchParamProvider theSearchParamProvider) {
-				// nothing
 			}
 		};
 

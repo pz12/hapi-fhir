@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module.standalone;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,7 +62,7 @@ public class FhirClientSearchParamProvider implements ISearchParamProvider {
 	}
 
 	@Override
-	public <SP extends IBaseResource> void refreshCache(BaseSearchParamRegistry<SP> theSearchParamRegistry, long theRefreshInterval) {
-		theSearchParamRegistry.doRefresh(theRefreshInterval);
+	public <SP extends IBaseResource> int refreshCache(BaseSearchParamRegistry<SP> theSearchParamRegistry, long theRefreshInterval) {
+		return theSearchParamRegistry.doRefresh(theRefreshInterval);
 	}
 }

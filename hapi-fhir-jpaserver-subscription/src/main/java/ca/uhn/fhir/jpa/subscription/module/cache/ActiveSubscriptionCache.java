@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module.cache;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class ActiveSubscriptionCache {
+class ActiveSubscriptionCache {
 	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(ActiveSubscriptionCache.class);
 
 	private final Map<String, ActiveSubscription> myCache = new ConcurrentHashMap<>();

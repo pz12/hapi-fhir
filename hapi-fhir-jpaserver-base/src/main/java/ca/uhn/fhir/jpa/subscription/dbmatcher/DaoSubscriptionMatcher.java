@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.dbmatcher;
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,35 +24,39 @@ import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.RuntimeResourceDefinition;
 import ca.uhn.fhir.jpa.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.dao.IFhirResourceDao;
-import ca.uhn.fhir.jpa.provider.ServletSubRequestDetails;
 import ca.uhn.fhir.jpa.searchparam.MatchUrlService;
 import ca.uhn.fhir.jpa.searchparam.SearchParameterMap;
+import ca.uhn.fhir.jpa.subscription.module.CanonicalSubscription;
 import ca.uhn.fhir.jpa.subscription.module.ResourceModifiedMessage;
 import ca.uhn.fhir.jpa.subscription.module.matcher.ISubscriptionMatcher;
 import ca.uhn.fhir.jpa.subscription.module.matcher.SubscriptionMatchResult;
 import ca.uhn.fhir.rest.api.server.IBundleProvider;
-import ca.uhn.fhir.rest.api.server.RequestDetails;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 public class DaoSubscriptionMatcher implements ISubscriptionMatcher {
-	private Logger ourLog = LoggerFactory.getLogger(DaoSubscriptionMatcher.class);
-
-	@Autowired
-	private FhirContext myCtx;
 	@Autowired
 	DaoRegistry myDaoRegistry;
 	@Autowired
 	MatchUrlService myMatchUrlService;
+	private Logger ourLog = LoggerFactory.getLogger(DaoSubscriptionMatcher.class);
+	@Autowired
+	private FhirContext myCtx;
+	@Autowired
+	private PlatformTransactionManager myTxManager;
 
 	@Override
-	public SubscriptionMatchResult match(String criteria, ResourceModifiedMessage msg) {
-		IIdType id = msg.getId(myCtx);
+	public SubscriptionMatchResult match(CanonicalSubscription theSubscription, ResourceModifiedMessage theMsg) {
+		IIdType id = theMsg.getId(myCtx);
 		String resourceType = id.getResourceType();
 		String resourceId = id.getIdPart();
+		String criteria = theSubscription.getCriteriaString();
 
 		// run the subscriptions query and look for matches, add the id as part of the criteria to avoid getting matches of previous resources rather than the recent resource
 		criteria += "&_id=" + resourceType + "/" + resourceId;
@@ -61,23 +65,24 @@ public class DaoSubscriptionMatcher implements ISubscriptionMatcher {
 
 		ourLog.debug("Subscription check found {} results for query: {}", results.size(), criteria);
 
-		return new SubscriptionMatchResult(results.size() > 0);
+		return SubscriptionMatchResult.fromBoolean(results.size() > 0);
 	}
-	
+
 	/**
 	 * Search based on a query criteria
 	 */
-	protected IBundleProvider performSearch(String theCriteria) {
+	private IBundleProvider performSearch(String theCriteria) {
 		IFhirResourceDao<?> subscriptionDao = myDaoRegistry.getSubscriptionDao();
 		RuntimeResourceDefinition responseResourceDef = subscriptionDao.validateCriteriaAndReturnResourceDefinition(theCriteria);
 		SearchParameterMap responseCriteriaUrl = myMatchUrlService.translateMatchUrl(theCriteria, responseResourceDef);
 
-		RequestDetails req = new ServletSubRequestDetails();
-		req.setSubRequest(true);
-
 		IFhirResourceDao<? extends IBaseResource> responseDao = myDaoRegistry.getResourceDao(responseResourceDef.getImplementingClass());
 		responseCriteriaUrl.setLoadSynchronousUpTo(1);
 
-		return responseDao.search(responseCriteriaUrl, req);
+		TransactionTemplate txTemplate = new TransactionTemplate(myTxManager);
+		txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+		return txTemplate.execute(t -> responseDao.search(responseCriteriaUrl));
+
 	}
+
 }

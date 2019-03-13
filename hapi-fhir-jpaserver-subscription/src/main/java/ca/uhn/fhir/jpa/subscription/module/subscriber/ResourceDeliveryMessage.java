@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module.subscriber;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,22 +27,19 @@ import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.gson.Gson;
+import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
 
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
+@SuppressWarnings("WeakerAccess")
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonAutoDetect(creatorVisibility = JsonAutoDetect.Visibility.NONE, fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
-public class ResourceDeliveryMessage {
+public class ResourceDeliveryMessage extends BaseResourceMessage implements IResourceMessage {
 
-	private static final long serialVersionUID = 1L;
-
-	@JsonIgnore
-	private transient CanonicalSubscription mySubscription;
-	@JsonProperty("subscription")
-	private String mySubscriptionString;
+	@JsonProperty("canonicalSubscription")
+	private CanonicalSubscription mySubscription;
 	@JsonProperty("payload")
 	private String myPayloadString;
 	@JsonIgnore
@@ -52,15 +49,15 @@ public class ResourceDeliveryMessage {
 	@JsonProperty("operationType")
 	private ResourceModifiedMessage.OperationTypeEnum myOperationType;
 
-	public ResourceModifiedMessage.OperationTypeEnum getOperationType() {
-		return myOperationType;
-	}
-
 	/**
 	 * Constructor
 	 */
 	public ResourceDeliveryMessage() {
 		super();
+	}
+
+	public ResourceModifiedMessage.OperationTypeEnum getOperationType() {
+		return myOperationType;
 	}
 
 	public void setOperationType(ResourceModifiedMessage.OperationTypeEnum theOperationType) {
@@ -85,22 +82,22 @@ public class ResourceDeliveryMessage {
 	}
 
 	public CanonicalSubscription getSubscription() {
-		if (mySubscription == null && mySubscriptionString != null) {
-			mySubscription = new Gson().fromJson(mySubscriptionString, CanonicalSubscription.class);
-		}
 		return mySubscription;
 	}
 
 	public void setSubscription(CanonicalSubscription theSubscription) {
 		mySubscription = theSubscription;
-		if (mySubscription != null) {
-			mySubscriptionString = new Gson().toJson(mySubscription);
-		}
 	}
 
 	public void setPayload(FhirContext theCtx, IBaseResource thePayload) {
 		myPayload = thePayload;
 		myPayloadString = theCtx.newJsonParser().encodeResourceToString(thePayload);
+		myPayloadId = thePayload.getIdElement().toUnqualified().getValue();
+	}
+
+	@Override
+	public String getPayloadId() {
+		return myPayloadId;
 	}
 
 	public void setPayloadId(IIdType thePayloadId) {
@@ -110,4 +107,26 @@ public class ResourceDeliveryMessage {
 		}
 	}
 
+	@Override
+	public String toString() {
+		return new ToStringBuilder(this)
+			.append("mySubscription", mySubscription)
+//			.append("mySubscriptionString", mySubscriptionString)
+			.append("myPayloadString", myPayloadString)
+			.append("myPayload", myPayload)
+			.append("myPayloadId", myPayloadId)
+			.append("myOperationType", myOperationType)
+			.toString();
+	}
+
+	/**
+	 * Helper method to fetch the subscription ID
+	 */
+	public String getSubscriptionId(FhirContext theFhirContext) {
+		String retVal = null;
+		if (getSubscription() != null) {
+			retVal = getSubscription().getIdElement(theFhirContext).getValue();
+		}
+		return retVal;
+	}
 }

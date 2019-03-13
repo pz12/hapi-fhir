@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module.cache;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@ package ca.uhn.fhir.jpa.subscription.module.cache;
  * limitations under the License.
  * #L%
  */
+
+import org.hl7.fhir.instance.model.Subscription;
 
 public class SubscriptionConstants {
 
@@ -68,9 +70,17 @@ public class SubscriptionConstants {
 	public static final String EXT_SUBSCRIPTION_RESTHOOK_DELIVER_LATEST_VERSION = "http://hapifhir.io/fhir/StructureDefinition/subscription-resthook-deliver-latest-version";
 
 	/**
+	 * Indicate which strategy will be used to match this subscription
+	 */
+
+	public static final String EXT_SUBSCRIPTION_MATCHING_STRATEGY = "http://hapifhir.io/fhir/StructureDefinition/subscription-matching-strategy";
+
+
+	/**
 	 * The number of threads used in subscription channel processing
 	 */
-	public static final int EXECUTOR_THREAD_COUNT = 5;
+	public static final int MATCHING_CHANNEL_CONCURRENT_CONSUMERS = 5;
+	public static final int DELIVERY_CHANNEL_CONCURRENT_CONSUMERS = 5;
 
 	/**
 	 * The maximum number of subscriptions that can be active at once
@@ -79,12 +89,12 @@ public class SubscriptionConstants {
 	public static final int MAX_SUBSCRIPTION_RESULTS = 1000;
 
 	/**
-	 * The size of the queue used for sending resources to the subscription matching processor
+	 * The size of the queue used for sending resources to the subscription matching processor and by each subscription delivery queue
 	 */
-	public static final int PROCESSING_EXECUTOR_QUEUE_SIZE = 1000;
 
-	/**
-	 * The size of the queue used by each subscription delivery queue
-	 */
 	public static final int DELIVERY_EXECUTOR_QUEUE_SIZE = 1000;
+	public static final String SUBSCRIPTION_STATUS = "Subscription.status";
+	public static final String SUBSCRIPTION_TYPE = "Subscription.channel.type";
+	public static final String REQUESTED_STATUS = Subscription.SubscriptionStatus.REQUESTED.toCode();
+	public static final String ACTIVE_STATUS = Subscription.SubscriptionStatus.ACTIVE.toCode();
 }

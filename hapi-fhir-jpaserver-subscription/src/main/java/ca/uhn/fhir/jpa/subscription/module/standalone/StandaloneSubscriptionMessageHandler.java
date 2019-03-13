@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module.standalone;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,11 +23,14 @@ package ca.uhn.fhir.jpa.subscription.module.standalone;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.RuntimeResourceDefinition;
 import ca.uhn.fhir.jpa.subscription.module.ResourceModifiedMessage;
+import ca.uhn.fhir.jpa.subscription.module.cache.SubscriptionCanonicalizer;
+import ca.uhn.fhir.jpa.subscription.module.cache.SubscriptionConstants;
 import ca.uhn.fhir.jpa.subscription.module.cache.SubscriptionRegistry;
 import ca.uhn.fhir.jpa.subscription.module.subscriber.ResourceModifiedJsonMessage;
-import ca.uhn.fhir.jpa.subscription.module.subscriber.SubscriptionCheckingSubscriber;
+import ca.uhn.fhir.jpa.subscription.module.subscriber.SubscriptionMatchingSubscriber;
 import ca.uhn.fhir.model.dstu2.valueset.ResourceTypeEnum;
 import org.hl7.fhir.instance.model.api.IBaseResource;
+import org.hl7.fhir.instance.model.api.IIdType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,9 +46,11 @@ public class StandaloneSubscriptionMessageHandler implements MessageHandler {
 	@Autowired
 	FhirContext myFhirContext;
 	@Autowired
-	SubscriptionCheckingSubscriber mySubscriptionCheckingSubscriber;
+	SubscriptionMatchingSubscriber mySubscriptionMatchingSubscriber;
 	@Autowired
 	SubscriptionRegistry mySubscriptionRegistry;
+	@Autowired
+	SubscriptionCanonicalizer mySubscriptionCanonicalizer;
 
 	@Override
 	public void handleMessage(Message<?> theMessage) throws MessagingException {
@@ -53,13 +58,39 @@ public class StandaloneSubscriptionMessageHandler implements MessageHandler {
 			ourLog.warn("Unexpected message payload type: {}", theMessage);
 			return;
 		}
-		ResourceModifiedMessage resourceModifiedMessage = ((ResourceModifiedJsonMessage) theMessage).getPayload();
-		IBaseResource resource = resourceModifiedMessage.getNewPayload(myFhirContext);
-		RuntimeResourceDefinition resourceDef = myFhirContext.getResourceDefinition(resource);
+		updateSubscriptionRegistryAndPerformMatching(((ResourceModifiedJsonMessage) theMessage).getPayload());
+	}
 
-		if (resourceDef.getName().equals(ResourceTypeEnum.SUBSCRIPTION.getCode())) {
-			mySubscriptionRegistry.registerSubscriptionUnlessAlreadyRegistered(resource);
+	public void updateSubscriptionRegistryAndPerformMatching(ResourceModifiedMessage theResourceModifiedMessage) {
+		switch (theResourceModifiedMessage.getOperationType()) {
+			case DELETE:
+				if (isSubscription(theResourceModifiedMessage)) {
+					mySubscriptionRegistry.unregisterSubscription(theResourceModifiedMessage.getId(myFhirContext));
+				}
+				return;
+			case CREATE:
+			case UPDATE:
+				if (isSubscription(theResourceModifiedMessage)) {
+					registerActiveSubscription(theResourceModifiedMessage.getNewPayload(myFhirContext));
+				}
+				break;
+			default:
+				break;
 		}
-		mySubscriptionCheckingSubscriber.handleMessage(theMessage);
+
+		mySubscriptionMatchingSubscriber.matchActiveSubscriptionsAndDeliver(theResourceModifiedMessage);
+	}
+
+	private boolean isSubscription(ResourceModifiedMessage theResourceModifiedMessage) {
+		IIdType id = theResourceModifiedMessage.getId(myFhirContext);
+		RuntimeResourceDefinition resourceDef = myFhirContext.getResourceDefinition(id.getResourceType());
+		return resourceDef.getName().equals(ResourceTypeEnum.SUBSCRIPTION.getCode());
+	}
+
+	private void registerActiveSubscription(IBaseResource theSubscription) {
+		String status = mySubscriptionCanonicalizer.getSubscriptionStatus(theSubscription);
+		if (SubscriptionConstants.ACTIVE_STATUS.equals(status)) {
+			mySubscriptionRegistry.registerSubscriptionUnlessAlreadyRegistered(theSubscription);
+		}
 	}
 }

@@ -7,7 +7,6 @@ import ca.uhn.fhir.jpa.model.entity.*;
 import ca.uhn.fhir.jpa.searchparam.JpaRuntimeSearchParam;
 import ca.uhn.fhir.jpa.searchparam.extractor.PathAndRef;
 import ca.uhn.fhir.jpa.searchparam.extractor.SearchParamExtractorR4;
-import ca.uhn.fhir.jpa.searchparam.registry.ISearchParamProvider;
 import ca.uhn.fhir.jpa.searchparam.registry.ISearchParamRegistry;
 import ca.uhn.fhir.util.TestUtil;
 import org.hl7.fhir.r4.hapi.ctx.DefaultProfileValidationSupport;
@@ -72,11 +71,6 @@ public class SearchParamExtractorR4Test {
 			}
 
 			@Override
-			public void refreshCacheIfNecessary() {
-				// nothing
-			}
-
-			@Override
 			public void requestRefresh() {
 				// nothing
 			}
@@ -89,11 +83,6 @@ public class SearchParamExtractorR4Test {
 			@Override
 			public Collection<RuntimeSearchParam> getSearchParamsByResourceType(RuntimeResourceDefinition theResourceDef) {
 				return null;
-			}
-
-			@Override
-			public void setSearchParamProviderForUnitTest(ISearchParamProvider theSearchParamProvider) {
-				// nothing
 			}
 		};
 
@@ -123,7 +112,7 @@ public class SearchParamExtractorR4Test {
 		assertNotNull(param);
 		List<PathAndRef> links = extractor.extractResourceLinks(enc, param);
 		assertEquals(1, links.size());
-		assertEquals("Encounter.location.location.where(resolve() is Location)", links.get(0).getPath());
+		assertEquals("Encounter.location.location", links.get(0).getPath());
 		assertEquals("Location/123", ((Reference) links.get(0).getRef()).getReference());
 	}
 
@@ -137,7 +126,7 @@ public class SearchParamExtractorR4Test {
 		assertNotNull(param);
 		List<PathAndRef> links = extractor.extractResourceLinks(consent, param);
 		assertEquals(1, links.size());
-		assertEquals("Consent.source.where(resolve() is Consent or resolve() is Contract or resolve() is QuestionnaireResponse or resolve() is DocumentReference)", links.get(0).getPath());
+		assertEquals("Consent.source", links.get(0).getPath());
 		assertEquals("Consent/999", ((Reference) links.get(0).getRef()).getReference());
 	}
 

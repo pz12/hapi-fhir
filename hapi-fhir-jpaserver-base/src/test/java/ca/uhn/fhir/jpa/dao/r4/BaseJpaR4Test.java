@@ -8,13 +8,14 @@ import ca.uhn.fhir.jpa.dao.dstu2.FhirResourceDaoDstu2SearchNoFtTest;
 import ca.uhn.fhir.jpa.model.entity.ModelConfig;
 import ca.uhn.fhir.jpa.model.entity.ResourceIndexedSearchParamString;
 import ca.uhn.fhir.jpa.model.entity.ResourceTable;
+import ca.uhn.fhir.jpa.model.interceptor.api.IInterceptorRegistry;
 import ca.uhn.fhir.jpa.provider.r4.JpaSystemProviderR4;
 import ca.uhn.fhir.jpa.search.DatabaseBackedPagingProvider;
 import ca.uhn.fhir.jpa.search.ISearchCoordinatorSvc;
 import ca.uhn.fhir.jpa.search.IStaleSearchDeletingSvc;
 import ca.uhn.fhir.jpa.search.reindex.IResourceReindexingSvc;
 import ca.uhn.fhir.jpa.search.warm.ICacheWarmingSvc;
-import ca.uhn.fhir.jpa.searchparam.registry.ISearchParamRegistry;
+import ca.uhn.fhir.jpa.searchparam.registry.BaseSearchParamRegistry;
 import ca.uhn.fhir.jpa.subscription.module.cache.SubscriptionRegistry;
 import ca.uhn.fhir.jpa.term.BaseHapiTerminologySvcImpl;
 import ca.uhn.fhir.jpa.term.IHapiTerminologySvc;
@@ -99,6 +100,9 @@ public abstract class BaseJpaR4Test extends BaseJpaTest {
 	@Qualifier("myCommunicationDaoR4")
 	protected IFhirResourceDao<Communication> myCommunicationDao;
 	@Autowired
+	@Qualifier("myCommunicationRequestDaoR4")
+	protected IFhirResourceDao<CommunicationRequest> myCommunicationRequestDao;
+	@Autowired
 	@Qualifier("myCarePlanDaoR4")
 	protected IFhirResourceDao<CarePlan> myCarePlanDao;
 	@Autowired
@@ -137,6 +141,9 @@ public abstract class BaseJpaR4Test extends BaseJpaTest {
 	@Qualifier("myGroupDaoR4")
 	protected IFhirResourceDao<Group> myGroupDao;
 	@Autowired
+	@Qualifier("myMolecularSequenceDaoR4")
+	protected IFhirResourceDao<MolecularSequence> myMolecularSequenceDao;
+	@Autowired
 	@Qualifier("myImmunizationDaoR4")
 	protected IFhirResourceDao<Immunization> myImmunizationDao;
 	@Autowired
@@ -146,6 +153,8 @@ public abstract class BaseJpaR4Test extends BaseJpaTest {
 	@Qualifier("myRiskAssessmentDaoR4")
 	protected IFhirResourceDao<RiskAssessment> myRiskAssessmentDao;
 	protected IServerInterceptor myInterceptor;
+	@Autowired
+	protected IInterceptorRegistry myInterceptorRegistry;
 	@Autowired
 	@Qualifier("myLocationDaoR4")
 	protected IFhirResourceDao<Location> myLocationDao;
@@ -223,7 +232,7 @@ public abstract class BaseJpaR4Test extends BaseJpaTest {
 	@Qualifier("mySearchParameterDaoR4")
 	protected IFhirResourceDao<SearchParameter> mySearchParameterDao;
 	@Autowired
-	protected ISearchParamRegistry mySearchParamRegsitry;
+	protected BaseSearchParamRegistry mySearchParamRegistry;
 	@Autowired
 	protected IStaleSearchDeletingSvc myStaleSearchDeletingSvc;
 	@Autowired
@@ -282,6 +291,8 @@ public abstract class BaseJpaR4Test extends BaseJpaTest {
 		myDaoConfig.setReuseCachedSearchResultsForMillis(new DaoConfig().getReuseCachedSearchResultsForMillis());
 		myDaoConfig.setSuppressUpdatesWithNoChange(new DaoConfig().isSuppressUpdatesWithNoChange());
 		myDaoConfig.setAllowContainsSearches(new DaoConfig().isAllowContainsSearches());
+
+		myInterceptorRegistry.clearAnonymousHookForUnitTest();
 	}
 
 	@After
@@ -321,9 +332,8 @@ public abstract class BaseJpaR4Test extends BaseJpaTest {
 
 	@Before
 	@Transactional()
-	public void beforePurgeDatabase() throws InterruptedException {
-		final EntityManager entityManager = this.myEntityManager;
-		purgeDatabase(myDaoConfig, mySystemDao, myResourceReindexingSvc, mySearchCoordinatorSvc, mySearchParamRegsitry);
+	public void beforePurgeDatabase() {
+		purgeDatabase(myDaoConfig, mySystemDao, myResourceReindexingSvc, mySearchCoordinatorSvc, mySearchParamRegistry);
 	}
 
 	@Before

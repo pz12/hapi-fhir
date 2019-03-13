@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module.config;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,19 +21,21 @@ package ca.uhn.fhir.jpa.subscription.module.config;
  */
 
 import ca.uhn.fhir.context.FhirContext;
-import ca.uhn.fhir.jpa.subscription.module.cache.ISubscriptionChannelFactory;
-import ca.uhn.fhir.jpa.subscription.module.cache.BlockingQueueSubscriptionChannelFactory;
+import ca.uhn.fhir.jpa.subscription.module.cache.ISubscribableChannelFactory;
+import ca.uhn.fhir.jpa.subscription.module.cache.LinkedBlockingQueueSubscribableChannelFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration
+@EnableScheduling
 @ComponentScan(basePackages = {"ca.uhn.fhir.jpa.searchparam", "ca.uhn.fhir.jpa.subscription.module"})
 public abstract class BaseSubscriptionConfig {
 	public abstract FhirContext fhirContext();
 
 	@Bean
-	public ISubscriptionChannelFactory blockingQueueSubscriptionDeliveryChannelFactory() {
-		return new BlockingQueueSubscriptionChannelFactory();
+	public ISubscribableChannelFactory blockingQueueSubscriptionDeliveryChannelFactory() {
+		return new LinkedBlockingQueueSubscribableChannelFactory();
 	}
 }

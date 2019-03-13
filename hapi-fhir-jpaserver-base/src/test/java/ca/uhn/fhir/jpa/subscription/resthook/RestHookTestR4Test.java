@@ -2,18 +2,15 @@ package ca.uhn.fhir.jpa.subscription.resthook;
 
 import ca.uhn.fhir.jpa.config.StoppableSubscriptionDeliveringRestHookSubscriber;
 import ca.uhn.fhir.jpa.subscription.BaseSubscriptionsR4Test;
-import ca.uhn.fhir.jpa.subscription.SubscriptionMatcherInterceptor;
 import ca.uhn.fhir.jpa.subscription.module.cache.SubscriptionConstants;
 import ca.uhn.fhir.rest.api.CacheControlDirective;
 import ca.uhn.fhir.rest.api.Constants;
 import ca.uhn.fhir.rest.api.MethodOutcome;
-import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
 import org.hl7.fhir.instance.model.api.IBaseBundle;
 import org.hl7.fhir.r4.model.*;
 import org.junit.After;
 import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.junit.Assert.*;
 
 /**
@@ -63,6 +61,173 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 	}
 
 	@Test
+	public void testUpdatesHaveCorrectMetadata() throws Exception {
+		String payload = "application/fhir+json";
+
+		String code = "1000000050";
+		String criteria1 = "Observation?";
+
+		createSubscription(criteria1, payload);
+		waitForActivatedSubscriptionCount(1);
+
+		/*
+		 * Send version 1
+		 */
+
+		Observation obs = sendObservation(code, "SNOMED-CT");
+		obs = myObservationDao.read(obs.getIdElement().toUnqualifiedVersionless());
+
+		// Should see 1 subscription notification
+		waitForQueueToDrain();
+		int idx = 0;
+		waitForSize(0, ourCreatedObservations);
+		waitForSize(1, ourUpdatedObservations);
+		assertEquals(Constants.CT_FHIR_JSON_NEW, ourContentTypes.get(idx));
+		assertEquals("1", ourUpdatedObservations.get(idx).getIdElement().getVersionIdPart());
+		assertEquals("1", ourUpdatedObservations.get(idx).getMeta().getVersionId());
+		assertEquals(obs.getMeta().getLastUpdatedElement().getValueAsString(), ourUpdatedObservations.get(idx).getMeta().getLastUpdatedElement().getValueAsString());
+		assertEquals(obs.getMeta().getLastUpdatedElement().getValueAsString(), ourUpdatedObservations.get(idx).getMeta().getLastUpdatedElement().getValueAsString());
+		assertEquals("1", ourUpdatedObservations.get(idx).getIdentifierFirstRep().getValue());
+
+		/*
+		 * Send version 2
+		 */
+
+		obs.getIdentifierFirstRep().setSystem("foo").setValue("2");
+		myObservationDao.update(obs);
+		obs = myObservationDao.read(obs.getIdElement().toUnqualifiedVersionless());
+
+		// Should see 1 subscription notification
+		waitForQueueToDrain();
+		idx++;
+		waitForSize(0, ourCreatedObservations);
+		waitForSize(2, ourUpdatedObservations);
+		assertEquals(Constants.CT_FHIR_JSON_NEW, ourContentTypes.get(idx));
+		assertEquals("2", ourUpdatedObservations.get(idx).getIdElement().getVersionIdPart());
+		assertEquals("2", ourUpdatedObservations.get(idx).getMeta().getVersionId());
+		assertEquals(obs.getMeta().getLastUpdatedElement().getValueAsString(), ourUpdatedObservations.get(idx).getMeta().getLastUpdatedElement().getValueAsString());
+		assertEquals(obs.getMeta().getLastUpdatedElement().getValueAsString(), ourUpdatedObservations.get(idx).getMeta().getLastUpdatedElement().getValueAsString());
+		assertEquals("2", ourUpdatedObservations.get(idx).getIdentifierFirstRep().getValue());
+	}
+
+	@Test
+	public void testPlaceholderReferencesInTransactionAreResolvedCorrectly() throws Exception {
+
+		String payload = "application/fhir+json";
+		String code = "1000000050";
+		String criteria1 = "Observation?";
+		createSubscription(criteria1, payload);
+		waitForActivatedSubscriptionCount(1);
+
+		// Create a transaction that should match
+		Bundle bundle = new Bundle();
+		bundle.setType(Bundle.BundleType.TRANSACTION);
+
+		Patient patient = new Patient();
+		patient.setId(IdType.newRandomUuid());
+		patient.getIdentifierFirstRep().setSystem("foo").setValue("AAA");
+		bundle.addEntry().setResource(patient).getRequest().setMethod(Bundle.HTTPVerb.POST).setUrl("Patient");
+
+		Observation observation = new Observation();
+		observation.getIdentifierFirstRep().setSystem("foo").setValue("1");
+		observation.getCode().addCoding().setCode(code).setSystem("SNOMED-CT");
+		observation.setStatus(Observation.ObservationStatus.FINAL);
+		observation.getSubject().setReference(patient.getId());
+		bundle.addEntry().setResource(observation).getRequest().setMethod(Bundle.HTTPVerb.POST).setUrl("Observation");
+
+		// Send the transaction
+		mySystemDao.transaction(null, bundle);
+
+		waitForSize(1, ourUpdatedObservations);
+
+		assertThat(ourUpdatedObservations.get(0).getSubject().getReference(), matchesPattern("Patient/[0-9]+"));
+	}
+
+	@Test
+	public void testUpdatesHaveCorrectMetadataUsingTransactions() throws Exception {
+		String payload = "application/fhir+json";
+
+		String code = "1000000050";
+		String criteria1 = "Observation?";
+
+		createSubscription(criteria1, payload);
+		waitForActivatedSubscriptionCount(1);
+
+		/*
+		 * Send version 1
+		 */
+
+		Observation observation = new Observation();
+		observation.getIdentifierFirstRep().setSystem("foo").setValue("1");
+		observation.getCode().addCoding().setCode(code).setSystem("SNOMED-CT");
+		observation.setStatus(Observation.ObservationStatus.FINAL);
+		Bundle bundle = new Bundle();
+		bundle.setType(Bundle.BundleType.TRANSACTION);
+		bundle.addEntry().setResource(observation).getRequest().setMethod(Bundle.HTTPVerb.POST).setUrl("Observation");
+		Bundle responseBundle = mySystemDao.transaction(null, bundle);
+
+		Observation obs = myObservationDao.read(new IdType(responseBundle.getEntry().get(0).getResponse().getLocation()));
+
+		// Should see 1 subscription notification
+		waitForQueueToDrain();
+		int idx = 0;
+		waitForSize(0, ourCreatedObservations);
+		waitForSize(1, ourUpdatedObservations);
+		assertEquals(Constants.CT_FHIR_JSON_NEW, ourContentTypes.get(idx));
+		assertEquals("1", ourUpdatedObservations.get(idx).getIdElement().getVersionIdPart());
+		assertEquals("1", ourUpdatedObservations.get(idx).getMeta().getVersionId());
+		assertEquals(obs.getMeta().getLastUpdatedElement().getValueAsString(), ourUpdatedObservations.get(idx).getMeta().getLastUpdatedElement().getValueAsString());
+		assertEquals("1", ourUpdatedObservations.get(idx).getIdentifierFirstRep().getValue());
+
+		/*
+		 * Send version 2
+		 */
+
+		observation = new Observation();
+		observation.setId(obs.getId());
+		observation.getIdentifierFirstRep().setSystem("foo").setValue("2");
+		observation.getCode().addCoding().setCode(code).setSystem("SNOMED-CT");
+		observation.setStatus(Observation.ObservationStatus.FINAL);
+		bundle = new Bundle();
+		bundle.setType(Bundle.BundleType.TRANSACTION);
+		bundle.addEntry().setResource(observation).getRequest().setMethod(Bundle.HTTPVerb.PUT).setUrl(obs.getIdElement().toUnqualifiedVersionless().getValue());
+		mySystemDao.transaction(null, bundle);
+		obs = myObservationDao.read(obs.getIdElement().toUnqualifiedVersionless());
+
+		// Should see 1 subscription notification
+		waitForQueueToDrain();
+		idx++;
+		waitForSize(0, ourCreatedObservations);
+		waitForSize(2, ourUpdatedObservations);
+		assertEquals(Constants.CT_FHIR_JSON_NEW, ourContentTypes.get(idx));
+		assertEquals("2", ourUpdatedObservations.get(idx).getIdElement().getVersionIdPart());
+		assertEquals("2", ourUpdatedObservations.get(idx).getMeta().getVersionId());
+		assertEquals(obs.getMeta().getLastUpdatedElement().getValueAsString(), ourUpdatedObservations.get(idx).getMeta().getLastUpdatedElement().getValueAsString());
+		assertEquals("2", ourUpdatedObservations.get(idx).getIdentifierFirstRep().getValue());
+	}
+
+	@Test
+	public void testRepeatedDeliveries() throws Exception {
+		String payload = "application/fhir+json";
+
+		String code = "1000000050";
+		String criteria1 = "Observation?";
+
+		createSubscription(criteria1, payload);
+		waitForActivatedSubscriptionCount(1);
+
+		for (int i = 0; i < 100; i++) {
+			Observation observation = new Observation();
+			observation.getIdentifierFirstRep().setSystem("foo").setValue("ID" + i);
+			observation.getCode().addCoding().setCode(code).setSystem("SNOMED-CT");
+			observation.setStatus(Observation.ObservationStatus.FINAL);
+			myObservationDao.create(observation);
+		}
+
+		waitForSize(100, ourUpdatedObservations);
+	}
+
+	@Test
 	public void testActiveSubscriptionShouldntReActivate() throws Exception {
 		String criteria = "Observation?code=111111111&_format=xml";
 		String payload = "application/fhir+json";
@@ -70,7 +235,7 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 
 		waitForActivatedSubscriptionCount(1);
 		for (int i = 0; i < 5; i++) {
-			int changes = this.mySubscriptionLoader.doInitSubscriptionsForUnitTest();
+			int changes = this.mySubscriptionLoader.doSyncSubscriptionsForUnitTest();
 			assertEquals(0, changes);
 		}
 	}
@@ -174,12 +339,12 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		ourLog.info("** About to send observation");
 		Observation observation = sendObservation(code, "SNOMED-CT");
 		assertEquals("1", observation.getIdElement().getVersionIdPart());
-		assertNull(observation.getComment());
+		assertNull(observation.getNoteFirstRep().getText());
 
-		observation.setComment("changed");
+		observation.getNoteFirstRep().setText("changed");
 		MethodOutcome methodOutcome = ourClient.update().resource(observation).execute();
 		assertEquals("2", methodOutcome.getId().getVersionIdPart());
-		assertEquals("changed", observation.getComment());
+		assertEquals("changed", observation.getNoteFirstRep().getText());
 
 		// Wait for our two delivery channel threads to be paused
 		assertTrue(countDownLatch.await(5L, TimeUnit.SECONDS));
@@ -194,9 +359,9 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		Observation observation2 = ourUpdatedObservations.get(1);
 
 		assertEquals("1", observation1.getIdElement().getVersionIdPart());
-		assertNull(observation1.getComment());
+		assertNull(observation1.getNoteFirstRep().getText());
 		assertEquals("2", observation2.getIdElement().getVersionIdPart());
-		assertEquals("changed", observation2.getComment());
+		assertEquals("changed", observation2.getNoteFirstRep().getText());
 	}
 
 	@Test
@@ -223,12 +388,12 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		ourLog.info("** About to send observation");
 		Observation observation = sendObservation(code, "SNOMED-CT");
 		assertEquals("1", observation.getIdElement().getVersionIdPart());
-		assertNull(observation.getComment());
+		assertNull(observation.getNoteFirstRep().getText());
 
-		observation.setComment("changed");
+		observation.getNoteFirstRep().setText("changed");
 		MethodOutcome methodOutcome = ourClient.update().resource(observation).execute();
 		assertEquals("2", methodOutcome.getId().getVersionIdPart());
-		assertEquals("changed", observation.getComment());
+		assertEquals("changed", observation.getNoteFirstRep().getText());
 
 		// Wait for our two delivery channel threads to be paused
 		assertTrue(countDownLatch.await(5L, TimeUnit.SECONDS));
@@ -243,9 +408,9 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		Observation observation2 = ourUpdatedObservations.get(1);
 
 		assertEquals("2", observation1.getIdElement().getVersionIdPart());
-		assertEquals("changed", observation1.getComment());
+		assertEquals("changed", observation1.getNoteFirstRep().getText());
 		assertEquals("2", observation2.getIdElement().getVersionIdPart());
-		assertEquals("changed", observation2.getComment());
+		assertEquals("changed", observation2.getNoteFirstRep().getText());
 	}
 
 	@Test
@@ -482,8 +647,6 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 
 	@Test
 	public void testSubscriptionTriggerViaSubscription() throws Exception {
-		SubscriptionMatcherInterceptor.setForcePayloadEncodeAndDecodeForUnitTests(true);
-
 		String payload = "application/xml";
 
 		String code = "1000000050";
@@ -599,9 +762,7 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		assertEquals(Constants.CT_FHIR_XML_NEW, ourContentTypes.get(0));
 	}
 
-	// TODO: reenable
 	@Test
-	@Ignore
 	public void testRestHookSubscriptionInvalidCriteria() throws Exception {
 		String payload = "application/xml";
 
@@ -610,8 +771,8 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		try {
 			createSubscription(criteria1, payload);
 			fail();
-		} catch (InvalidRequestException e) {
-			assertEquals("HTTP 400 Bad Request: Invalid criteria: Failed to parse match URL[Observation?codeeeee=SNOMED-CT] - Resource type Observation does not have a parameter with name: codeeeee", e.getMessage());
+		} catch (UnprocessableEntityException e) {
+			assertEquals("HTTP 422 Unprocessable Entity: Invalid subscription criteria submitted: Observation?codeeeee=SNOMED-CT Failed to parse match URL[Observation?codeeeee=SNOMED-CT] - Resource type Observation does not have a parameter with name: codeeeee", e.getMessage());
 		}
 	}
 
@@ -701,22 +862,22 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 
 	@Test
 	public void testGoodSubscriptionPersists() {
-		assertEquals(0, subsciptionCount());
+		assertEquals(0, subscriptionCount());
 		String payload = "application/fhir+json";
 		String criteriaGood = "Patient?gender=male";
 		Subscription subscription = newSubscription(criteriaGood, payload);
 		ourClient.create().resource(subscription).execute();
-		assertEquals(1, subsciptionCount());
+		assertEquals(1, subscriptionCount());
 	}
 
-	private int subsciptionCount() {
+	private int subscriptionCount() {
 		IBaseBundle found = ourClient.search().forResource(Subscription.class).cacheControl(new CacheControlDirective().setNoCache(true)).execute();
 		return toUnqualifiedVersionlessIdValues(found).size();
 	}
 
 	@Test
 	public void testBadSubscriptionDoesntPersist() {
-		assertEquals(0, subsciptionCount());
+		assertEquals(0, subscriptionCount());
 		String payload = "application/fhir+json";
 		String criteriaBad = "BodySite?accessType=Catheter";
 		Subscription subscription = newSubscription(criteriaBad, payload);
@@ -725,7 +886,7 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		} catch (UnprocessableEntityException e) {
 			ourLog.info("Expected exception", e);
 		}
-		assertEquals(0, subsciptionCount());
+		assertEquals(0, subscriptionCount());
 	}
 
 	@Test
@@ -740,7 +901,7 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		sp.setXpathUsage(SearchParameter.XPathUsageType.NORMAL);
 		sp.setStatus(Enumerations.PublicationStatus.ACTIVE);
 		mySearchParameterDao.create(sp);
-		mySearchParamRegsitry.forceRefresh();
+		mySearchParamRegistry.forceRefresh();
 		createSubscription(criteria, "application/json");
 		waitForActivatedSubscriptionCount(1);
 
@@ -777,7 +938,6 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		}
 
 	}
-
 
 
 }

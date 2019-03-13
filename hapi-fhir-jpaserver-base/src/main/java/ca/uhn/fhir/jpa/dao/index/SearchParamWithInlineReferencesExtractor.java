@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.dao.index;
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -99,7 +99,7 @@ public class SearchParamWithInlineReferencesExtractor {
 
 		extractInlineReferences(theResource);
 
-		myResourceLinkExtractor.extractResourceLinks(theParams, theEntity, theResource, theUpdateTime, myDaoResourceLinkResolver);
+		myResourceLinkExtractor.extractResourceLinks(theParams, theEntity, theResource, theUpdateTime, myDaoResourceLinkResolver, true);
 
 		/*
 		 * If the existing resource already has links and those match links we still want, use them instead of removing them and re adding them

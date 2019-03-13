@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.subscription.module.matcher;
  * #%L
  * HAPI FHIR Subscription Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,9 @@ package ca.uhn.fhir.jpa.subscription.module.matcher;
  * #L%
  */
 
+import ca.uhn.fhir.jpa.subscription.module.CanonicalSubscription;
 import ca.uhn.fhir.jpa.subscription.module.ResourceModifiedMessage;
 
 public interface ISubscriptionMatcher {
-	SubscriptionMatchResult match(String criteria, ResourceModifiedMessage msg);
+	SubscriptionMatchResult match(CanonicalSubscription subscription, ResourceModifiedMessage msg);
 }

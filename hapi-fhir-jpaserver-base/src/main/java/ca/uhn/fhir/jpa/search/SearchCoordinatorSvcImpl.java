@@ -4,7 +4,7 @@ package ca.uhn.fhir.jpa.search;
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2018 University Health Network
+ * Copyright (C) 2014 - 2019 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -103,8 +103,18 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 	private IPagingProvider myPagingProvider;
 
 	private int mySyncSize = DEFAULT_SYNC_SIZE;
-	/** Set in {@link #start()} */
+	/**
+	 * Set in {@link #start()}
+	 */
 	private boolean myCustomIsolationSupported;
+
+	/**
+	 * Constructor
+	 */
+	public SearchCoordinatorSvcImpl() {
+		CustomizableThreadFactory threadFactory = new CustomizableThreadFactory("search_coord_");
+		myExecutor = Executors.newCachedThreadPool(threadFactory);
+	}
 
 	@PostConstruct
 	public void start() {
@@ -117,14 +127,6 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 		if (myCustomIsolationSupported == false) {
 			ourLog.warn("JPA dialect does not support transaction isolation! This can have an impact on search performance.");
 		}
-	}
-
-	/**
-	 * Constructor
-	 */
-	public SearchCoordinatorSvcImpl() {
-		CustomizableThreadFactory threadFactory = new CustomizableThreadFactory("search_coord_");
-		myExecutor = Executors.newCachedThreadPool(threadFactory);
 	}
 
 	@Override
@@ -461,11 +463,12 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 		private final ArrayList<Long> myUnsyncedPids = new ArrayList<>();
 		private Search mySearch;
 		private boolean myAbortRequested;
-		private int myCountSaved = 0;
+		private int myCountSavedTotal = 0;
+		private int myCountSavedThisPass = 0;
 		private boolean myAdditionalPrefetchThresholdsRemaining;
 		private List<Long> myPreviouslyAddedResourcePids;
 		private Integer myMaxResultsToFetch;
-		private int myCountFetchedDuringThisPass;
+
 		/**
 		 * Constructor
 		 */
@@ -487,7 +490,7 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 
 		protected void setPreviouslyAddedResourcePids(List<Long> thePreviouslyAddedResourcePids) {
 			myPreviouslyAddedResourcePids = thePreviouslyAddedResourcePids;
-			myCountSaved = myPreviouslyAddedResourcePids.size();
+			myCountSavedTotal = myPreviouslyAddedResourcePids.size();
 		}
 
 		private ISearchBuilder newSearchBuilder() {
@@ -587,36 +590,46 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 					for (Long nextPid : myUnsyncedPids) {
 						SearchResult nextResult = new SearchResult(mySearch);
 						nextResult.setResourcePid(nextPid);
-						nextResult.setOrder(myCountSaved++);
+						nextResult.setOrder(myCountSavedTotal);
 						resultsToSave.add(nextResult);
-						ourLog.trace("Saving ORDER[{}] Resource {}", nextResult.getOrder(), nextResult.getResourcePid());
+						int order = nextResult.getOrder();
+						ourLog.trace("Saving ORDER[{}] Resource {}", order, nextResult.getResourcePid());
+
+						myCountSavedTotal++;
+						myCountSavedThisPass++;
 					}
+
 					mySearchResultDao.saveAll(resultsToSave);
 
 					synchronized (mySyncedPids) {
 						int numSyncedThisPass = myUnsyncedPids.size();
-						ourLog.trace("Syncing {} search results", numSyncedThisPass);
+						ourLog.trace("Syncing {} search results - Have more: {}", numSyncedThisPass, theResultIter.hasNext());
 						mySyncedPids.addAll(myUnsyncedPids);
 						myUnsyncedPids.clear();
 
 						if (theResultIter.hasNext() == false) {
-							mySearch.setNumFound(myCountSaved);
-							int loadedCountThisPass = theResultIter.getSkippedCount() + myCountSaved;
-							if (myMaxResultsToFetch != null && loadedCountThisPass < myMaxResultsToFetch) {
+							mySearch.setNumFound(myCountSavedTotal);
+							int skippedCount = theResultIter.getSkippedCount();
+							int totalFetched = skippedCount + myCountSavedThisPass;
+							ourLog.trace("MaxToFetch[{}] SkippedCount[{}] CountSavedThisPass[{}] CountSavedThisTotal[{}] AdditionalPrefetchRemaining[{}]", myMaxResultsToFetch, skippedCount, myCountSavedThisPass, myCountSavedTotal, myAdditionalPrefetchThresholdsRemaining);
+
+							if (myMaxResultsToFetch != null && totalFetched < myMaxResultsToFetch) {
+								ourLog.trace("Setting search status to FINISHED");
 								mySearch.setStatus(SearchStatusEnum.FINISHED);
-								mySearch.setTotalCount(myCountSaved);
+								mySearch.setTotalCount(myCountSavedTotal);
 							} else if (myAdditionalPrefetchThresholdsRemaining) {
 								ourLog.trace("Setting search status to PASSCMPLET");
 								mySearch.setStatus(SearchStatusEnum.PASSCMPLET);
 								mySearch.setSearchParameterMap(myParams);
 							} else {
+								ourLog.trace("Setting search status to FINISHED");
 								mySearch.setStatus(SearchStatusEnum.FINISHED);
-								mySearch.setTotalCount(myCountSaved);
+								mySearch.setTotalCount(myCountSavedTotal);
 							}
 						}
 					}
 
-					mySearch.setNumFound(myCountSaved);
+					mySearch.setNumFound(myCountSavedTotal);
 
 					int numSynced;
 					synchronized (mySyncedPids) {
@@ -681,7 +694,7 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 					}
 				});
 
-				ourLog.info("Completed search for [{}{}] and found {} resources in {}ms", mySearch.getResourceType(), mySearch.getSearchQueryString(), mySyncedPids.size(), sw.getMillis());
+				ourLog.info("Have completed search for [{}{}] and found {} resources in {}ms - Status is {}", mySearch.getResourceType(), mySearch.getSearchQueryString(), mySyncedPids.size(), sw.getMillis(), mySearch.getStatus());
 
 			} catch (Throwable t) {
 
@@ -763,7 +776,10 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 			 * before doing anything else.
 			 */
 			boolean wantOnlyCount = SummaryEnum.COUNT.equals(myParams.getSummaryMode());
-			boolean wantCount = wantOnlyCount || SearchTotalModeEnum.ACCURATE.equals(myParams.getSearchTotalMode());
+			boolean wantCount =
+				wantOnlyCount ||
+					SearchTotalModeEnum.ACCURATE.equals(myParams.getSearchTotalMode()) ||
+					(myParams.getSearchTotalMode() == null && SearchTotalModeEnum.ACCURATE.equals(myDaoConfig.getDefaultTotalMode()));
 			if (wantCount) {
 				ourLog.trace("Performing count");
 				ISearchBuilder sb = newSearchBuilder();
@@ -844,8 +860,8 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 			/*
 			 * Construct the SQL query we'll be sending to the database
 			 */
-			IResultIterator theResultIterator = sb.createQuery(myParams, mySearch.getUuid());
-			assert (theResultIterator != null);
+			IResultIterator resultIterator = sb.createQuery(myParams, mySearch.getUuid());
+			assert (resultIterator != null);
 
 			/*
 			 * The following loop actually loads the PIDs of the resources
@@ -853,9 +869,8 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 			 * every X results, we commit to the HFJ_SEARCH table.
 			 */
 			int syncSize = mySyncSize;
-			while (theResultIterator.hasNext()) {
-				myUnsyncedPids.add(theResultIterator.next());
-				myCountFetchedDuringThisPass++;
+			while (resultIterator.hasNext()) {
+				myUnsyncedPids.add(resultIterator.next());
 
 				boolean shouldSync = myUnsyncedPids.size() >= syncSize;
 
@@ -873,7 +888,7 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 				Validate.isTrue(isNotAborted(), "Abort has been requested");
 
 				if (shouldSync) {
-					saveUnsynced(theResultIterator);
+					saveUnsynced(resultIterator);
 				}
 
 				if (myLoadingThrottleForUnitTests != null) {
@@ -889,7 +904,7 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 			// If no abort was requested, bail out
 			Validate.isTrue(isNotAborted(), "Abort has been requested");
 
-			saveUnsynced(theResultIterator);
+			saveUnsynced(resultIterator);
 		}
 	}
 
@@ -906,7 +921,7 @@ public class SearchCoordinatorSvcImpl implements ISearchCoordinatorSvc {
 				TransactionTemplate txTemplate = new TransactionTemplate(myManagedTxManager);
 				txTemplate.afterPropertiesSet();
 				txTemplate.execute(t -> {
-					List<Long> previouslyAddedResourcePids = mySearchResultDao.findWithSearchUuid(getSearch());
+					List<Long> previouslyAddedResourcePids = mySearchResultDao.findWithSearchUuidOrderIndependent(getSearch());
 					ourLog.debug("Have {} previously added IDs in search: {}", previouslyAddedResourcePids.size(), getSearch().getUuid());
 					setPreviouslyAddedResourcePids(previouslyAddedResourcePids);
 					return null;
